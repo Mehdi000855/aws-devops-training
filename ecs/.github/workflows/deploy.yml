@@ -1,0 +1,57 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: webapp-cluster
+  ECS_SERVICE: webapp-service
+  ECS_TASK_DEFINITION: dirane-2120052-task-webapp
+  DOCKER_IMAGE: mehdyyy/webapp
+  IMAGE_TAG: latest
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build Docker image
+        run: docker build -t $DOCKER_IMAGE:$IMAGE_TAG .
+
+      - name: Push Docker image
+        run: docker push $DOCKER_IMAGE:$IMAGE_TAG
+
+      - name: Register new ECS task definition
+        run: |
+          sed -e "s|\"image\": \".*\"|\"image\": \"$DOCKER_IMAGE:$IMAGE_TAG\"|" taskdef.json > taskdef-updated.json
+          aws ecs register-task-definition \
+            --cli-input-json file://taskdef-updated.json
+
+      - name: Deploy ECS service with new task definition
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment
+
+
+
